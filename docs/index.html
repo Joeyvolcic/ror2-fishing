@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>RoR2 Fishing Roadmap</title>
+<meta name="description" content="What's shipped, what's coming and what players voted for in the Risk of Rain 2 fishing mod.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the public lake chart. Release lanes run left to right; release notes and votes are one column below a tab bar. */
+:root{
+  --bg:#eef2f1; --panel:#fbfcfb; --ink:#14211f; --muted:#5b6b68; --line:#d3dcda;
+  --lake:#1d5c63; --lake-soft:#d6e8e7; --bobber:#e0572a; --bobber-soft:#fbe3d8; --on-accent:#ffffff;
+  --st-shipped:#2f7d4f; --st-live:#1f7fb8; --st-built:#7a5bc4; --st-building:#c98a12; --st-planned:#6d7b78; --st-idea:#a3afac; --st-cut:#b4453d;
+  --f-display:"Chakra Petch","Segoe UI",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  --r:6px; color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0d1716; --panel:#13201f; --ink:#e3ecea; --muted:#93a5a1; --line:#25403d;
+  --lake:#5fb3b3; --lake-soft:#173836; --bobber:#ff7a4a; --bobber-soft:#3a2016; --on-accent:#1a0e08;
+  --st-shipped:#5cc285; --st-live:#5bb2ea; --st-built:#a68cf0; --st-building:#e7b04a; --st-planned:#8d9d99; --st-idea:#61706d; --st-cut:#e0756b;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0d1716; --panel:#13201f; --ink:#e3ecea; --muted:#93a5a1; --line:#25403d;
+  --lake:#5fb3b3; --lake-soft:#173836; --bobber:#ff7a4a; --bobber-soft:#3a2016; --on-accent:#1a0e08;
+  --st-shipped:#5cc285; --st-live:#5bb2ea; --st-built:#a68cf0; --st-building:#e7b04a; --st-planned:#8d9d99; --st-idea:#61706d; --st-cut:#e0756b;
+  color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--f-body)}
+.wrap{max-width:1320px;margin:0 auto;padding-inline:16px;padding-block:0 48px;display:grid;gap:20px}
+h1,h2,h3{font-family:var(--f-display);margin:0;text-wrap:balance;letter-spacing:.01em}
+h1{font-size:28px;font-weight:700}
+h2{font-size:20px;font-weight:600}
+h3{font-size:15px;font-weight:600}
+p{margin:0}
+a{color:var(--lake)}
+:focus-visible{outline:2px solid var(--bobber);outline-offset:2px}
+.eyebrow{font:500 11px/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.muted{color:var(--muted)}
+.note{font-size:12px;color:var(--muted)}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line);margin-inline:-16px;padding-inline:16px;min-width:0}
+.top-in{display:flex;flex-wrap:wrap;gap:6px 24px;align-items:end;justify-content:space-between;padding-top:18px}
+.top-in p{color:var(--muted);max-width:62ch;margin-top:4px}
+nav{overflow-x:auto;scrollbar-width:none;margin-top:10px;min-width:0}
+nav ul{display:flex;gap:2px;list-style:none;margin:0;padding:0;min-width:max-content}
+nav a{display:block;padding:9px 12px 10px;font:600 13px var(--f-display);letter-spacing:.03em;text-transform:uppercase;color:var(--muted);text-decoration:none;border-bottom:3px solid transparent}
+nav a:hover{color:var(--ink)}
+nav a[aria-current="page"]{color:var(--ink);border-bottom-color:var(--bobber)}
+.panel{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);min-width:0}
+.panel-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:6px 10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.panel-body{padding:14px 16px;display:grid;gap:12px}
+.dot{width:9px;height:9px;border-radius:50%;flex:none;background:var(--c)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.rstat{font:500 10.5px var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:999px;border:1px solid var(--c);color:var(--c);white-space:nowrap}
+.badge{font:500 10.5px var(--f-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--c)}
+.timeline{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
+.lanes{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(250px,1fr);min-width:1000px}
+.lane{border-left:1px solid var(--line);display:flex;flex-direction:column;min-width:0}
+.lane:first-child{border-left:0}
+.lane-head{padding:12px 14px 10px;border-bottom:1px solid var(--line);position:relative;display:grid;gap:3px}
+.lane-head .when{font:12px var(--f-mono);color:var(--muted)}
+.bar{height:4px;border-radius:2px;background:var(--lake-soft);overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--lake)}
+.lane-head::after{content:"";position:absolute;right:-7px;top:18px;width:12px;height:12px;border-radius:50%;background:var(--panel);border:2px solid var(--lake);z-index:1}
+.lane:last-child .lane-head::after{display:none}
+.lane-body{padding:10px;display:flex;flex-direction:column;gap:7px}
+.card{display:grid;gap:3px;border:1px solid var(--line);border-left:4px solid var(--c);border-radius:var(--r);background:var(--bg);padding:8px 10px}
+.card .nm{font-weight:600;font-size:13px;line-height:1.3}
+.card .meta{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;font-size:11.5px;color:var(--muted)}
+.card details summary{cursor:pointer;font-size:12px;color:var(--muted)}
+.card details p{font-size:12.5px;margin-top:4px}
+.pg{flex:1;height:4px;border-radius:2px;background:var(--line);overflow:hidden;max-width:80px;min-width:30px}
+.pg i{display:block;height:100%;background:var(--c)}
+.empty{padding:14px;color:var(--muted);font-size:13px}
+.rels{display:grid;gap:20px}
+.notes h3{margin-top:6px;font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-family:var(--f-mono);font-weight:500}
+.notes ul{margin:4px 0 0;padding-left:18px;display:grid;gap:6px}
+.notes li{max-width:80ch}
+.notes li b{font-weight:600}
+.tag{font:500 10.5px var(--f-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--c);margin-left:6px;white-space:nowrap}
+.votes{display:grid;gap:9px}
+.vrow{display:grid;grid-template-columns:minmax(0,1.2fr) 3fr auto;gap:10px;align-items:center;font-size:13px}
+.vb{height:10px;border-radius:3px;background:var(--lake-soft);overflow:hidden}
+.vb i{display:block;height:100%;background:var(--bobber)}
+.vn{font:12px var(--f-mono);font-variant-numeric:tabular-nums;color:var(--muted);min-width:3ch;text-align:right}
+footer{font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="top-in">
+      <div>
+        <div class="eyebrow">Risk of Rain 2 · fishing mod</div>
+        <h1>RoR2 Fishing Roadmap</h1>
+        <p>What's shipped, what's being built for the next release, and which ideas players voted for.</p>
+      </div>
+      <a class="note" href="https://github.com/Joeyvolcic/ror2-fishing/releases/latest">Download the latest release</a>
+    </div>
+    <nav aria-label="Views"><ul id="nav"></ul></nav>
+  </header>
+  <main id="main"><section class="panel"><div class="empty">Loading the roadmap…</div></section></main>
+  <footer><span id="gen"></span><a href="https://github.com/Joeyvolcic/ror2-fishing">Source on GitHub</a></footer>
+</div>
+<script>
+const STATUS = {
+  shipped:{label:"Shipped",c:"--st-shipped"}, live:{label:"In testing",c:"--st-live"}, built:{label:"Built",c:"--st-built"},
+  building:{label:"Being built",c:"--st-building"}, planned:{label:"Planned",c:"--st-planned"}, idea:{label:"Idea",c:"--st-idea"}, cut:{label:"Cut / replaced",c:"--st-cut"}
+};
+const ORDER = ["shipped","live","built","building","planned","idea","cut"];
+const RSTATUS = {"released":{label:"Released",c:"--st-shipped"},"in-progress":{label:"In progress",c:"--st-building"},"planned":{label:"Planned",c:"--st-planned"}};
+const AREA_ORDER = ["Core","Rules","Rod","Fish","World","Maps","Economy","Events","Gadget","Pets","Guide","UI","Audio","Movement","Balance","Community","Fun","Release"];
+const VIEWS = [["roadmap","Roadmap"],["releases","Releases"],["votes","Player votes"]];
+let D = null, view = "roadmap";
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const col = st => `var(${(STATUS[st]||STATUS.idea).c})`;
+const rstat = st => `<span class="rstat" style="--c:var(${(RSTATUS[st]||RSTATUS.planned).c})">${esc((RSTATUS[st]||RSTATUS.planned).label)}</span>`;
+const areaCmp = (a,b) => { const i=AREA_ORDER.indexOf(a), j=AREA_ORDER.indexOf(b); return (i<0?99:i)-(j<0?99:j) || a.localeCompare(b); };
+const byRank = (a,b) => (a.rank??999)-(b.rank??999) || (a.name||"").localeCompare(b.name||"");
+const clean = s => String(s||"").replace(/^Live( for [^:]+)?:\s*/,"");
+function stats(id){ const all = D.features.filter(f=>f.release===id && f.status!=="cut"); return {n:all.length, ready: all.length ? Math.round(all.reduce((s,f)=>s+(+f.progress||0),0)/all.length) : 0}; }
+
+function nav(){ $("#nav").innerHTML = VIEWS.map(([k,l])=>`<li><a href="#${k}"${view===k?' aria-current="page"':""}>${l}</a></li>`).join(""); }
+function card(f){
+  return `<div class="card" style="--c:${col(f.status)}"><span class="nm">${esc(f.name)}</span>
+    <span class="meta"><span class="badge">${esc(STATUS[f.status]?.label||f.status)}</span><span>${esc(f.area||"")}</span>${f.status!=="idea"&&f.status!=="cut"?`<span class="pg"><i style="width:${+f.progress||0}%"></i></span><span class="mono">${+f.progress||0}%</span>`:""}${f.requestedBy?`<span>Player request</span>`:""}</span>
+    ${f.summary?`<details><summary>Details</summary><p>${esc(clean(f.summary))}</p></details>`:""}</div>`;
+}
+function roadmap(){
+  const lanes = D.releases.map(r => { const s = stats(r.id);
+    const items = D.features.filter(f=>f.release===r.id && f.status!=="cut").sort((a,b)=>ORDER.indexOf(a.status)-ORDER.indexOf(b.status) || byRank(a,b));
+    return `<div class="lane"><div class="lane-head"><h3>${esc(r.title)}</h3><div class="when">${esc([r.target||r.version, `${s.n} features`].filter(Boolean).join(" · "))}</div>
+      <div>${rstat(r.status)}</div><div class="bar"><i style="width:${s.ready}%"></i></div></div>
+      <div class="lane-body">${items.map(card).join("") || `<div class="empty">Nothing here yet.</div>`}</div></div>`; }).join("");
+  return `<div style="display:grid;gap:10px"><div class="legend">${ORDER.filter(k=>k!=="cut").map(k=>`<span><span class="dot" style="--c:${col(k)}"></span>${STATUS[k].label}</span>`).join("")}</div>
+    <div class="timeline"><div class="lanes">${lanes}</div></div></div>`;
+}
+function releases(){
+  return `<div class="rels">${D.releases.filter(r=>r.id!=="backlog").map(r => {
+    const fs = D.features.filter(f=>f.release===r.id && (f.status==="shipped"||f.status==="live"));
+    const coming = D.features.filter(f=>f.release===r.id && ["built","building","planned"].includes(f.status)).sort(byRank);
+    const groups = {}; fs.forEach(f => (groups[f.area||"Other"] ||= []).push(f));
+    const ver = r.version && !String(r.title).includes(r.version) ? ` · ${r.version}` : "";
+    return `<section class="panel" id="release-${esc(r.id)}"><div class="panel-head"><div style="display:grid;gap:4px"><span class="eyebrow">${esc(r.target||"No date yet")}</span><h2>${esc(r.title+ver)}</h2></div>${rstat(r.status)}</div>
+      <div class="panel-body notes">${r.notes?`<p>${esc(r.notes)}</p>`:""}
+      ${fs.length ? Object.keys(groups).sort(areaCmp).map(a=>`<div><h3>${esc(a)}</h3><ul>${groups[a].sort(byRank).map(f=>`<li><b>${esc(f.name)}</b>${f.status==="live"?`<span class="tag" style="--c:${col("live")}">In testing</span>`:""}: ${esc(clean(f.summary))}</li>`).join("")}</ul></div>`).join("")
+        : `<p class="muted">${r.status==="planned"?"Ideas for this release are on the roadmap. Nothing is built yet.":"No finished features yet."}</p>`}
+      ${coming.length?`<div><h3>Still being built</h3><ul>${coming.map(f=>`<li><b>${esc(f.name)}</b> <span class="mono note">${+f.progress||0}%</span></li>`).join("")}</ul></div>`:""}
+      </div></section>`; }).join("")}</div>`;
+}
+function votes(){
+  const v = D.features.filter(f=>f.votes>0).sort((a,b)=>b.votes-a.votes), max = v.length ? v[0].votes : 1;
+  return `<section class="panel"><div class="panel-head"><h2>Player votes</h2><span class="note">From the in-game feature polls</span></div>
+    <div class="panel-body votes">${v.length ? v.map(f=>`<div class="vrow"><span>${esc(f.name)}</span><span class="vb"><i style="width:${Math.round(100*f.votes/max)}%"></i></span><span class="vn">${f.votes}</span></div>`).join("")
+    : `<p class="muted">No poll results yet. Every 12 minutes the game offers players three ideas to vote on with <span class="mono">!vote 1/2/3</span>. Totals show up here after the next update.</p>`}</div></section>`;
+}
+function render(){
+  nav();
+  if(!D) return;
+  $("#main").innerHTML = ({roadmap, releases, votes}[view] || roadmap)();
+  $("#gen").textContent = `Updated ${new Date(D.generated).toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})}`;
+}
+function route(){ const h = location.hash.slice(1); view = VIEWS.some(v=>v[0]===h) ? h : (h.startsWith("release-") ? "releases" : "roadmap"); render();
+  if(h.startsWith("release-")) document.getElementById(h)?.scrollIntoView(); }
+window.addEventListener("hashchange", route);
+route();
+fetch("data.json", {cache:"no-cache"}).then(r => { if(!r.ok) throw new Error(r.status); return r.json(); })
+  .then(d => { D = d; route(); })
+  .catch(() => { $("#main").innerHTML = `<section class="panel"><div class="empty">The roadmap data couldn't be loaded. Try reloading the page.</div></section>`; });
+</script>
+</body>
+</html>
