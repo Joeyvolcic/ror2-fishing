@@ -178,6 +178,8 @@ static class FishingLauncher
         Say("Loading the fish into the game...");
         int rc3 = LoadPayload("FishFxClient.dll", "FishFxClient", "ror2_fishfx_client_", fishLog, out fishNews);
         if (rc3 != 0) { }
+        else if (fishNews.Contains("host detected"))
+            Say("This game is the HOST - the host draws its own fish, nothing changed here.");
         else if (fishNews.Contains("already running") || fishNews.Contains("installed"))
         {
             Say("Fish loaded ✔" + (fishNews.Contains("already running") ? "  (they were already loaded - nothing changed)" : ""));

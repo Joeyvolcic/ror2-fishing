@@ -90,12 +90,27 @@ public static class FishFx3
                 int ov = vf != null ? Convert.ToInt32(vf.GetValue(null)) : 1;
                 if (r != null && (bool)r.GetValue(null) && en != null && (bool)en.GetValue(null) && ov >= version) { Log("already running - nothing changed"); return; }
             }
+#if FISHFX_CLIENT
+            // the guest payload never touches the host's own FishFx<N> (this game is the host if one is running)
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                foreach (Type t in SafeTypes(asm))
+                {
+                    int hn;
+                    if (!t.Name.StartsWith("FishFx") || !int.TryParse(t.Name.Substring(6), out hn)) continue;
+                    FieldInfo hr = t.GetField("running", BindingFlags.Public | BindingFlags.Static), he = t.GetField("enabled", BindingFlags.Public | BindingFlags.Static);
+                    if (hr != null && he != null && (bool)hr.GetValue(null) && (bool)he.GetValue(null)) { Log("host detected (" + t.Name + " is running) - guest fish not started"); return; }
+                }
+#endif
             // switch off older / other FishFx versions (their root objects hide themselves)
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
                 if (asm == typeof(FishFxMarker).Assembly) continue;
                 foreach (Type t in SafeTypes(asm))
+#if FISHFX_CLIENT
+                    if (t.Name == Me)   // only older guest copies
+#else
                     if (t.Name.StartsWith("FishFx") && !t.Name.StartsWith("FishFxTest"))
+#endif
                     {
                         FieldInfo en = t.GetField("enabled", BindingFlags.Public | BindingFlags.Static);
                         if (en != null && en.FieldType == typeof(bool)) { en.SetValue(null, false); Log("disabled old " + t.Name); }

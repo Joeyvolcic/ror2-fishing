@@ -216,6 +216,10 @@ public static class FishItemsClient
                         FieldInfo an = t.GetField("announced", All); if (an != null && (bool)an.GetValue(null)) announced = true;
 #endif
                     }
+                    if (!IsHostBuild && t.Name != "FishItemsClient")
+                    {   // a host build (FishItems<N>) is running here, so this game is the host (maybe still in the menu)
+                        hostSkip = true; Log("host detected (" + t.Name + " is running) - the host runs its own FishItems mod, nothing changed"); return;
+                    }
                 }
             }
             if (!IsHostBuild && ServerActive()) { hostSkip = true; Log("host detected - the host runs its own FishItems mod, nothing changed"); return; }
@@ -251,6 +255,9 @@ public static class FishItemsClient
     static void Tick()
     {
         if (failed || hostSkip) return;
+        // the guest copy was loaded at the menu of a game that then became the host: stop for good (the host's own
+        // FishItems<N> does everything there; two copies would apply the movement perks twice)
+        if (!IsHostBuild && ServerActive()) { hostSkip = true; Log("this game is now the host - guest copy stopped"); return; }
         try
         {
             if (!enabled) { if (!restored) { restored = true; Restore(); RestorePerks(); } return; }
