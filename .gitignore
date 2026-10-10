@@ -1,0 +1,8 @@
+*.exe
+*.dll
+*.pdb
+obj/
+bin/
+*.zip
+*.log
+latest.json
