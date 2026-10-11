@@ -653,7 +653,7 @@ public static class ReqPanelClient
             var shown = new List<string>(); var heights = new List<float>();
             var all = new List<Req>(reqs.Values);
             float used = 0;
-            for (int i = all.Count - 1; i >= 0 && shown.Count < (open ? 8 : 4); i--)
+            for (int i = all.Count - 1; i >= 0 && shown.Count < (open ? 8 : 0); i--)   // collapsed: title line only (2.1 HUD layout)
             {
                 Req r = all[i];
                 string s = "<b>" + r.name + "</b>: " + r.text + "  <color=" + StatusColor(r.status) + ">[" + StatusText(r) + "]</color>";
@@ -661,14 +661,14 @@ public static class ReqPanelClient
                 if (used + h > budget && shown.Count > 0) break;
                 shown.Insert(0, s); heights.Insert(0, h); used += h;
             }
-            if (shown.Count == 0)
+            if (shown.Count == 0 && open)
             {
                 string s = "<color=#aaaaaa>No requests yet - press F2 to ask Claude for a feature.</color>";
                 shown.Add(s); heights.Add(label.CalcHeight(new UnityEngine.GUIContent(s), inner)); used = heights[0];
             }
             bool fb = feedback.Length > 0 && T < feedbackUntil;
             float boxH = 2 * pad + line + used + (open ? line * 2.4f : 0) + (fb ? line : 0);
-            float y = Math.Min(top, maxBottom - boxH);
+            float y = open ? Math.Min(top, maxBottom - boxH) : maxBottom - boxH;
             var rect = new UnityEngine.Rect(x, y, w, boxH);
             UnityEngine.GUI.Box(rect, "", box);
             UnityEngine.GUI.Box(rect, "", box);   // twice = darker

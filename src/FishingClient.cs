@@ -137,7 +137,16 @@ public static class FishingClient
             EventInfo upd = ror2.GetType("RoR2.RoR2Application").GetEvent("onUpdate", All);
             if (upd == null) upd = ror2.GetType("RoR2.RoR2Application").GetEvent("onFixedUpdate", All);
             Action u = Update; upd.AddEventHandler(null, u);
+            RodHandAttach.Late += LateRender;   // rods are drawn in LateUpdate so they follow the animated hand
+            CastAnimLook.SplashType = "FishFxClient";   // splash rings from the guest FishFx build
+            CastAnimLook.Reseat = (b, p) => RodHandAttach.Attach(b, p, false, false, false);
             installed = true;
+            try { FishingSwimLook.Install("[client] ", () => enabled, false); } catch (Exception e) { Log("swim install error: " + e.Message); }
+            GameplayClient.Log = Log;                                   // eat buffs, weather, golden hotspot, pools, lures
+            DayNightLook.Log = s => Log("[daynight] " + s);             // day/night lighting from [FT] TIME
+            FishingFlashlight.Log = s => Log("[flashlight] " + s);      // L = local flashlight
+            FishingPetLines.Log = Log;                                  // drone pets' lines
+            FishingZoneCues.Log = Log;                                  // fishing zone cues (reeds / lilies / buoy / ice)
             Log("fishing client installed: chat hook ok, frame hook=" + upd.Name + ", host=" + IsHost());
         }
         catch (Exception e) { Log("Run error: " + (e.InnerException ?? e)); throw; }
@@ -148,8 +157,11 @@ public static class FishingClient
     // 2 = handles [FT] WHIP (rod whip, host Fishing16+); 3 = [FT] GROUND bounce-back + 14 species perk texts;
     // 4 = mod 2.0: teleporter-sparkle hotspot, bigger rods + Mercenary-style whip swing, native lake water, panel button;
     // a newer copy replaces an older running one
-    public static int version = 4;
-    public const string ModVersion = "2.0";
+    // 5 = mod 2.1: rod in the hand + cast animation, underwater view, swimming, eat buffs / weather / golden hotspot / pools /
+    //     lures, day/night lighting, glow bobbers + rod type models, flashlight (L)
+    // 6 = mod 3.0 (renumbered 2.1 feature set; payloads renamed _v30)
+    public static int version = 6;
+    public const string ModVersion = "3.0";
     public const string ReleaseUrl = "https://github.com/Joeyvolcic/ror2-fishing/releases/latest";
 
     static void TakeStateFrom(Type other)   // tournament HUD data + hotspot of the replaced copy (managed data only)
@@ -157,7 +169,7 @@ public static class FishingClient
         try
         {
             const BindingFlags S = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
-            foreach (string n in new[] { "board", "myColl", "perks" })
+            foreach (string n in new[] { "board", "myColl", "perks", "loadouts" })
             {
                 FieldInfo of = other.GetField(n, S), nf = typeof(Self).DeclaringType.GetField(n, S);
                 IDictionary od = of == null ? null : of.GetValue(null) as IDictionary, nd = nf == null ? null : nf.GetValue(null) as IDictionary;
@@ -307,6 +319,8 @@ public static class FishingClient
     //   [FT] COLL|<name>|<species>:<count>|...
     //   [FT] HOT|<x>|<y>|<z>|<radius>      purple hotspot on the water (best fish), y = host water level
     //   [FT] GROUND|<name>|<x>|<y>|<z>     invalid cast: the bobber landed on ground there (sits ~1 s, then reels back)
+    //   [FT] ROD|<name>|<rodType>|<rodSkin>|<bobberSkin>   rod shop loadout (on change + every 30 s; skins in RodSkinLook.cs)
+    //   [FT] MONEY|<name>|<total>          money after a rod shop purchase
     // movement perks per fish held (applied by FishItems on each player's own game); the host's PERK lines override these
     static readonly string[][] perkTable = {
         new[] { "Minnow", "+2% move speed" }, new[] { "Perch", "+2% sprint speed" }, new[] { "Trout", "+3% jump height" },
@@ -369,6 +383,10 @@ public static class FishingClient
             string[] p = s.Substring(5).Split('|');
             string me = myName ?? MyName();
             tourney = true;
+            if (p[0] == "TIME") { DayNightLine(p); return; }
+            bool extra = false;
+            try { extra = RouteExtras(p, me); } catch (Exception e) { if (errors++ < 10) Log("FT extras error on '" + s + "': " + e.Message); }
+            if (extra) return;
             if (p[0] == "CATCH" && p.Length >= 5)
             {
                 string name = p[1], species = p[2];
@@ -440,6 +458,18 @@ public static class FishingClient
                 else if (atk == me) { flashAt = T; flashText = "You whipped " + tgt + "!"; }
                 Log("FT whip: " + atk + " -> " + tgt + (tgt == me ? " (me)" : ""));
             }
+            else if (p[0] == "ROD" && p.Length >= 5)
+            {   // rod shop loadout: rod type (cast range prediction) + rod / bobber skin
+                string[] old; loadouts.TryGetValue(p[1], out old);
+                loadouts[p[1]] = new[] { p[2], p[3], p[4] };
+                if (old == null || old[0] != p[2] || old[1] != p[3] || old[2] != p[4]) Log("FT rod: " + p[1] + " = " + p[2] + " / " + p[3] + " / " + p[4] + " bobber");
+            }
+            else if (p[0] == "MONEY" && p.Length >= 3)
+            {
+                board[p[1]] = Num(p[2]);
+                if (p[1] == me) myMoney = board[p[1]];
+                Log("FT money: " + p[1] + " $" + p[2]);
+            }
             else if (p[0] == "COLL" && p.Length >= 2)
             {
                 if (p[1] != me) return;
@@ -454,6 +484,17 @@ public static class FishingClient
             }
         }
         catch (Exception e) { if (errors++ < 10) Log("FT parse error on '" + s + "': " + e.Message); }
+    }
+
+    // gameplay (eat buffs, weather, golden hotspot, pools, lures) and drone-pet lines. A separate, non-inlined method so an
+    // error in those handlers can never stop the tournament lines (CATCH/BOARD/...) handled after it.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    static bool RouteExtras(string[] p, string me)
+    {
+        if (GameplayClient.HandleFT(p, me)) { FishingFlashlight.eventName = GameplayClient.eventName; return true; }
+        string zf;
+        if (FishingZoneCues.Line(p, me, out zf)) { if (zf != null) { flashAt = T; flashText = zf; } return true; }   // fishing zones ([FT] ZONE / ZONECAST)
+        return FishingPetLines.Line(p);   // drone pets' fishing line ([FT] PETCAST / PETCATCH)
     }
 
     static string CollSummary()
@@ -491,10 +532,15 @@ public static class FishingClient
             float sc = UnityEngine.Screen.height / 1080f;
             UnityEngine.Matrix4x4 old = UnityEngine.GUI.matrix;
             UnityEngine.GUI.matrix = UnityEngine.Matrix4x4.Scale(new UnityEngine.Vector3(sc, sc, 1f));
-            float W = 300f, x = UnityEngine.Screen.width / sc - W - 20f, y = 330f;
+            float W = 300f, x = UnityEngine.Screen.width / sc - W - 20f, y = 330f;   // right side (y adjusted below)
             var top = TopBoard(4);
             int rows = Math.Max(1, collOrder.Count);
-            float h = 12 + 30 + 26 + rows * 40 + 26 + Math.Max(1, top.Count) * 24 + 8 + 26 + 10;
+            List<string> gp = null; try { gp = GameplayClient.HudLines(); } catch { }
+            int gpn = gp == null ? 0 : gp.Count;
+            bool compact = collOrder.Count > 6;            // many species: one line each (perk next to the name) so the panel fits
+            float rowH = compact ? 22f : 40f;
+            float h = 12 + 30 + gpn * 22 + (gpn > 0 ? 4 : 0) + 26 + rows * rowH + 26 + Math.Max(1, top.Count) * 24 + 8 + 26 + 10;
+            y = Math.Max(130f, Math.Min(330f, 842f - h));   // grow upward when tall: stay above the F2 line (bottom right, 78-84 %) and below the clock
 
             float since = T - flashAt;
             bool flash = since >= 0 && since < 3f;
@@ -513,10 +559,21 @@ public static class FishingClient
 
             float cy = y + 10, lx = x + 14, lw = W - 28;
             UnityEngine.GUI.Label(new UnityEngine.Rect(lx, cy, lw, 30), "<color=#ffd75e>Your money: $" + myMoney.ToString("#,0") + "</color>", stText); cy += 30;
+            if (gpn > 0)
+            {
+                foreach (string gl in gp) { UnityEngine.GUI.Label(new UnityEngine.Rect(lx, cy, lw, 22), gl, stSmall); cy += 22; }
+                cy += 4;
+            }
             UnityEngine.GUI.Label(new UnityEngine.Rect(lx, cy, lw, 24), "<color=#66ccff>FISH INVENTORY</color>", stTitle); cy += 26;
             if (collOrder.Count == 0) { UnityEngine.GUI.Label(new UnityEngine.Rect(lx, cy, lw, 40), "<color=#aaaaaa>nothing caught yet</color>", stSmall); cy += 40; }
             foreach (string sp in collOrder)
             {
+                if (compact)
+                {
+                    UnityEngine.GUI.Label(new UnityEngine.Rect(lx, cy, lw, 22), "<color=#ffffff>" + Esc(sp) + "</color> <color=#ffd75e>x" + myColl[sp] + "</color>  <size=12><color=#9fd6a0>" + Esc(PerkOf(sp)) + "</color></size>", stSmall);
+                    cy += 22;
+                    continue;
+                }
                 UnityEngine.GUI.Label(new UnityEngine.Rect(lx, cy, lw, 22), "<color=#ffffff>" + Esc(sp) + "</color> <color=#ffd75e>x" + myColl[sp] + "</color>", stText);
                 UnityEngine.GUI.Label(new UnityEngine.Rect(lx + 12, cy + 20, lw - 12, 18), "<color=#9fd6a0>" + Esc(PerkOf(sp)) + "</color>", stSmall);
                 cy += 40;
@@ -582,13 +639,15 @@ public static class FishingClient
         {
             if (rigs.Count > 0 || !IsNull(water) || hotGo != null) KillAll("disabled");
             KillHud();
+            UnderwaterLook.Restore();
+            ClientExtrasOff();
             return;
         }
         try
         {
             inRun = false;
 #if !TESTMODE
-            if (IsHost()) { if (rigs.Count > 0 || !IsNull(water) || hotGo != null) KillAll("this game is now the host"); return; }
+            if (IsHost()) { if (rigs.Count > 0 || !IsNull(water) || hotGo != null) KillAll("this game is now the host"); ClientExtrasOff(); return; }
 #endif
             if (tourney) EnsureHud();
             if (GetStatic(runType, "instance") == null)
@@ -596,6 +655,8 @@ public static class FishingClient
                 if (rigs.Count > 0 || !IsNull(water) || hotGo != null) KillAll("run ended");
                 anglers.Clear();
                 lock (chatQueue) chatQueue.Clear();
+                UnderwaterLook.Restore();
+                ClientExtrasOff();
                 return;
             }
             inRun = true;
@@ -628,9 +689,15 @@ public static class FishingClient
                     if (ga != null && ga.state != 0) { RigReel(kv.Key); ga.state = 0; ga.since = T; }
                 }
             try { WhipInput(); } catch (Exception e) { if (rigErrors++ < 10) Log("whip input error: " + e.Message); }
-            Render();
+            if (!RodHandAttach.EnsureLateHook()) Render();   // normally LateRender() draws them after the Animator
             try { WhipFxTick(); } catch (Exception e) { if (rigErrors++ < 10) Log("whip fx error: " + e.Message); }
             try { HotRender(); } catch (Exception e) { if (rigErrors++ < 10) Log("hotspot render error: " + e); }
+            try { UnderwaterLook.Tag = "[client] "; UnderwaterLook.Tick(); } catch (Exception e) { if (rigErrors++ < 10) Log("underwater error: " + e.Message); }
+            try { GameplayClient.Frame(hasWater, waterY, myName); } catch (Exception e) { if (rigErrors++ < 10) Log("gameplay fx error: " + e.Message); }
+            FishingPetLines.Frame();
+            if (FishingZoneCues.Any) FishingZoneCues.Frame(SceneName(), hasWater, waterY);
+            try { DayNightFrame(); } catch (Exception e) { if (rigErrors++ < 10) Log("day/night error: " + e.Message); }
+            try { FishingFlashlight.Tick(true); } catch (Exception e) { if (rigErrors++ < 10) Log("flashlight error: " + e.Message); }
             if (waterLook != null && waterLook.Alive) waterLook.Animate();
         }
         catch (Exception e) { if (errors++ < 10) Log("update error: " + (e.InnerException ?? e)); }
@@ -677,6 +744,7 @@ public static class FishingClient
         public object body, pole, bobber, lineGo, line, poleTf, bobTf;
         public float castTime = -100f, reelTime = -100f, arcH = 3f, flight = 0.6f;
         public float groundReelAt;   // > 0: a ground cast; reel back at this time
+        public readonly RodSkinLook.State skin = new RodSkinLook.State();
         public float tx, ty, tz;
         public float bx, by, bz;
     }
@@ -809,6 +877,9 @@ public static class FishingClient
             if (hotGo != null) { UnityEngine.Object.Destroy(hotGo); hotGo = null; }
             hasHot = false;
             pendingHits.Clear();
+            try { GameplayClient.Clear(); } catch { }
+            try { FishingPetLines.Clear(); } catch { }
+            try { FishingZoneCues.Clear(); } catch { }
             foreach (Angler a in anglers.Values) a.state = 0;
             if (n > 0 || w) Log("removed " + n + " rigs" + (w ? " and the water" : "") + " (" + why + ")");
         }
@@ -826,6 +897,7 @@ public static class FishingClient
         {
             Rig r = GetRig(name, true);
             if (r == null) { Log(name + ": no body to attach a rod to"); return; }
+            float rm = RodRange(name);
             // same landing rule as the host (Fishing14): aim ray hits the water within 200 m -> land there,
             // else lob along the aim with pitch -10..+45 deg -> 15..200 m
             object foot = Get(r.body, "footPosition");
@@ -842,15 +914,16 @@ public static class FishingClient
                 float k = (waterY - F(o, "y")) / F(dir, "y");
                 float hx = F(o, "x") + F(dir, "x") * k, hz = F(o, "z") + F(dir, "z") * k;
                 float ddx = hx - fx, ddz = hz - fz;
-                if (k > 0 && ddx * ddx + ddz * ddz <= CastRange * CastRange) { r.tx = hx; r.tz = hz; hit = true; }
+                if (k > 0 && ddx * ddx + ddz * ddz <= CastRange * rm * CastRange * rm) { r.tx = hx; r.tz = hz; hit = true; }
             }
             if (!hit)
             {
                 float pitch = dir == null ? 0f : (float)(Math.Asin(Math.Max(-1f, Math.Min(1f, F(dir, "y")))) * 180.0 / Math.PI);
                 float u = Math.Max(0f, Math.Min(1f, (pitch - LobPitchMin) / (LobPitchMax - LobPitchMin)));
-                float dist = Math.Max(LobMinDist, Math.Min(CastRange, Lerp(LobMinDist, CastRange, u)));
+                float dist = Math.Max(LobMinDist * rm, Math.Min(CastRange * rm, Lerp(LobMinDist * rm, CastRange * rm, u)));
                 r.tx = fx + F(a, "x") * dist; r.tz = fz + F(a, "z") * dist;
             }
+            GameplayClient.AdjustCast(name, ref r.tx, ref r.ty, ref r.tz);   // a cast into a small pond ([FT] PCAST)
             float hd; { float hx2 = r.tx - fx, hz2 = r.tz - fz; hd = (float)Math.Sqrt(hx2 * hx2 + hz2 * hz2); }
             r.flight = FlightTime(hd); r.arcH = Apex(hd);
             r.castTime = T; r.reelTime = -100f; r.groundReelAt = 0f;
@@ -890,6 +963,41 @@ public static class FishingClient
 
     static float Lerp(float a, float b, float t) { return a + (b - a) * t; }
 
+    static void LateRender() { if (enabled && inRun) { Render(); CastAnimFrame(); } }   // RodHandAttach's LateUpdate
+
+    // CastAnimLook (same code as the host's CastAnim<N>): wind-up/flick cast, bobber arc + splash, float bob, bite tugs,
+    // reel skips, idle sway, rod bend and a sagging line. Visual only; tuning in %TEMP%\ror2_castanim.cfg.
+    static readonly Dictionary<string, CastAnimLook.Input> castAnimIn = new Dictionary<string, CastAnimLook.Input>();
+    static void CastAnimFrame()
+    {
+        try
+        {
+            CastAnimLook.CheckCfg();
+            float t = T;
+            foreach (var kv in rigs)
+            {
+                Rig r = kv.Value;
+                CastAnimLook.Input I;
+                if (!castAnimIn.TryGetValue(kv.Key, out I)) castAnimIn[kv.Key] = I = new CastAnimLook.Input { key = kv.Key };
+                I.body = r.body as UnityEngine.Component; I.pole = r.poleTf as UnityEngine.Transform;
+                I.bob = r.bobTf as UnityEngine.Transform; I.line = r.line as UnityEngine.LineRenderer;
+                if (I.body == null || I.pole == null) continue;
+                Angler ang; anglers.TryGetValue(kv.Key, out ang);
+                I.state = ang == null ? 0 : ang.state;
+                if (I.state != 0 && r.groundReelAt > 0f) I.state = 3;
+                I.now = t; I.castTime = r.castTime; I.reelTime = r.reelTime; I.flight = r.flight; I.arcH = r.arcH;
+                I.target = new UnityEngine.Vector3(r.tx, r.ty, r.tz);
+                I.hasWater = hasWater; I.waterY = waterY;
+                I.swinging = FishingMercSwingLook.IsSwinging(kv.Key);
+                RodHandAttach.Entry re;
+                I.extraPitch = RodHandAttach.table.TryGetValue(I.body.gameObject.name.Replace("(Clone)", "").Trim(), out re) ? re.rodPitch : 0f;
+                CastAnimLook.Animate(I);
+            }
+            CastAnimLook.EndFrame();
+        }
+        catch (Exception e) { if (rigErrors++ < 10) Log("cast anim error: " + e.Message); }
+    }
+
     static void Render()
     {
         if (rigs.Count == 0) return;
@@ -926,9 +1034,17 @@ public static class FishingClient
                 tfPos.SetValue(r.poleTf, Vec(baseX + dx * len / 2, baseY + dy * len / 2, baseZ + dz * len / 2), null);
                 tfRot.SetValue(r.poleTf, fromTo.Invoke(null, new object[] { Vec(0, 1, 0), Vec(dx, dy, dz) }), null);
                 float tipX = baseX + dx * len, tipY = baseY + dy * len, tipZ = baseZ + dz * len;
+                var pt = (UnityEngine.Transform)r.poleTf;
+                bool sw = FishingMercSwingLook.IsSwinging(kv.Key);
+                bool moved = RodHandAttach.Attach(body, pt, sw, true, !sw);   // handle into the right hand (+ arm pose)
                 if (ApplySwing(kv.Key, r, body))
-                {   // the swing moved the rod: the line starts at its new tip
-                    var pt = (UnityEngine.Transform)r.poleTf;
+                {   // the swing moved the rod about the hand; the arm follows it, the handle stays in the hand
+                    moved = true;
+                    RodHandAttach.Attach(body, pt, true, false, true);
+                }
+                else if (sw) RodHandAttach.Attach(body, pt, false, false, true);
+                if (moved)
+                {   // the line starts at the rod's new tip
                     UnityEngine.Vector3 tip = pt.position + pt.up * pt.localScale.y;
                     tipX = tip.x; tipY = tip.y; tipZ = tip.z;
                 }
@@ -966,6 +1082,82 @@ public static class FishingClient
             if (dead != null) foreach (string n in dead) { KillRig(rigs[n]); rigs.Remove(n); Log(n + ": rig removed (body changed/died)"); }
         }
         catch (Exception e) { if (rigErrors++ < 10) Log("render error: " + (e.InnerException ?? e)); }
+        RodSkinsFrame();
+    }
+
+    // ---------------------------------------------------------------- rod shop skins (from [FT] ROD)
+    static readonly Dictionary<string, string[]> loadouts = new Dictionary<string, string[]>();   // name -> {rod, skin, bobber}
+    static float RodRange(string name) { string[] lo; return loadouts.TryGetValue(name, out lo) ? RodSkinLook.RangeMult(lo[0]) : 1f; }
+    static void RodSkinsFrame()
+    {
+        float t = T;
+        foreach (var kv in rigs)
+        {
+            Rig r = kv.Value;
+            try
+            {
+                var pole = r.pole as UnityEngine.GameObject; var bob = r.bobber as UnityEngine.GameObject;
+                if (pole == null || bob == null || !pole.activeSelf) continue;
+                string[] lo; loadouts.TryGetValue(kv.Key, out lo);
+                string skin = lo == null ? "Default" : lo[1], bobber = lo == null ? "Plain" : lo[2];
+                string rodT = lo == null ? null : lo[0];
+                if (r.skin.key == null && skin == "Default" && bobber == "Plain" && rodT == null) continue;   // never changed: keep the stock look
+                var line = r.line as UnityEngine.LineRenderer;
+                if (r.skin.key != skin + "|" + bobber) { RodSkinLook.Apply(r.skin, pole, bob, line, skin, bobber); GlowBobberLook.Apply(bob, bobber); Log(kv.Key + ": rod skin " + skin + " / " + bobber + " bobber"); }
+                var body = r.body as UnityEngine.Component;
+                RodSkinLook.Animate(r.skin, bob, line, body == null ? null : body.transform, skin, bobber, t);
+                if (rodT != null) { RodTypeLook.Apply(pole, rodT); RodTypeLook.Tick(pole); }
+            }
+            catch (Exception e) { if (rigErrors++ < 10) Log("rod skin error (" + kv.Key + "): " + e.Message); }
+        }
+    }
+
+    // ---------------------------------------------------------------- day/night lighting (DayNightLook.cs)
+    // Host DayNight<N> sends "[FT] TIME|<hour 0-24>|<dayMinutes>" every 10 s. This copy runs its own clock between lines
+    // (24 h per dayMinutes real minutes), eases toward the host value, snaps when > 0.5 h off, and restores the stage's
+    // own lighting when the run ends, the client is disabled, or no TIME line came for 60 s (host without DayNight).
+    static bool dnHas, dnActive;
+    static float dnHour, dnMinutes = 10f, dnCorr, dnLastLine = -100f, dnLastT = -1f;
+    static void DayNightLine(string[] p)
+    {
+        if (p.Length < 2) return;
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        float h, dm;
+        if (!float.TryParse(p[1], System.Globalization.NumberStyles.Float, ci, out h)) return;
+        h = ((h % 24f) + 24f) % 24f;
+        if (p.Length > 2 && float.TryParse(p[2], System.Globalization.NumberStyles.Float, ci, out dm) && dm > 0.05f) dnMinutes = dm;
+        float diff = h - dnHour;
+        if (diff > 12f) diff -= 24f; else if (diff < -12f) diff += 24f;
+        if (!dnHas || Math.Abs(diff) > 0.5f) { dnHour = h; dnCorr = 0f; Log("FT time " + h.ToString("0.00") + " (day = " + dnMinutes + " min)" + (dnHas ? ", clock snapped" : "")); }
+        else dnCorr = diff;
+        dnHas = true; dnLastLine = T;
+    }
+    static void DayNightFrame()   // every frame in a run (main thread)
+    {
+        float t = T, dt = dnLastT < 0f ? 0f : Math.Min(0.5f, t - dnLastT);
+        dnLastT = t;
+        if (!dnHas) return;
+        if (t - dnLastLine > 60f)
+        {
+            dnHas = false; FishingFlashlight.hour = -1f;
+            if (dnActive) { DayNightLook.Restore(); dnActive = false; Log("no [FT] TIME for 60 s - stage lighting restored"); }
+            return;
+        }
+        float step = dt * 24f / (Math.Max(0.1f, dnMinutes) * 60f);
+        float k = Math.Min(1f, dt * 0.5f), c = dnCorr * k;   // ease out the difference to the host's clock over ~2 s
+        dnCorr -= c;
+        dnHour = (((dnHour + step + c) % 24f) + 24f) % 24f;
+        DayNightLook.Update(dnHour);
+        if (!dnActive) { dnActive = true; Log("day/night lighting on at " + dnHour.ToString("0.00")); }
+        FishingFlashlight.hour = dnHour;
+    }
+
+    // everything this client draws besides rigs/water/hotspot: called when disabled, on the host, and outside a run
+    static void ClientExtrasOff()
+    {
+        try { if (dnActive) { DayNightLook.Restore(); dnActive = false; Log("day/night lighting restored"); } } catch (Exception e) { if (rigErrors++ < 10) Log("day/night restore error: " + e.Message); }
+        dnHas = false; dnLastT = -1f;
+        try { FishingFlashlight.Off(); } catch { }
     }
 
     // ---------------------------------------------------------------- water sheet (one per stage)
@@ -1068,9 +1260,35 @@ public static class FishingClient
     static UnityEngine.GameObject hotGo;
     static float hotBuiltR;
 
+    // Mod 2.1: hotspots are invisible; players find them with the Compass / Range Finder (CompassClient payload, host
+    // HotspotCompass<N>). While a CompassClient copy runs in this game the purple and golden looks are not built at all
+    // (CompassClient also hides any it finds); without it (older FISHING.exe mix) they are drawn as in 2.0.
+    static bool compassOn; static float nextCompassCheck = -1f;
+    static bool CompassRunning()
+    {
+        if (T < nextCompassCheck) return compassOn;
+        nextCompassCheck = T + 2f;
+        bool on = false;
+        try
+        {
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type t = asm.GetType("CompassClient");
+                if (t == null) continue;
+                FieldInfo i = t.GetField("installed", BindingFlags.Public | BindingFlags.Static), e = t.GetField("enabled", BindingFlags.Public | BindingFlags.Static);
+                if (i != null && e != null && (bool)i.GetValue(null) && (bool)e.GetValue(null)) { on = true; break; }
+            }
+        }
+        catch { }
+        if (on != compassOn) Log(on ? "compass client running: hotspot looks off" : "no compass client: hotspot looks on");
+        compassOn = on;
+        GameplayClient.hotspotsHidden = on;
+        return on;
+    }
+
     static void HotRender()   // every frame, main thread
     {
-        bool show = hasHot && hotScene == SceneName();
+        bool show = hasHot && hotScene == SceneName() && !CompassRunning();
         if (!show)
         {
             if (hotGo != null) { UnityEngine.Object.Destroy(hotGo); hotGo = null; Log("hotspot look removed"); }

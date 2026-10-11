@@ -1,0 +1,9 @@
+{
+    "name":  "RoR2Fishing",
+    "version_number":  "3.0.0",
+    "website_url":  "https://github.com/Joeyvolcic/ror2-fishing",
+    "description":  "Co-op fishing game mode: rods instead of weapons, a shared lake, fish to catch and sell, rod shop, merchant, inventory, island, swimming, day/night and a timed tournament. Everyone needs it.",
+    "dependencies":  [
+                         "bbepis-BepInExPack-5.4.2117"
+                     ]
+}

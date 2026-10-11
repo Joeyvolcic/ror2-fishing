@@ -2,7 +2,8 @@
 // school and broadcasts it ([FT] SCHOOL / SFISH / SGONE, see FishSchool.cs); this file renders exactly those fish from the
 // shared deterministic paths + the host clock, so every player sees the same fish - and casting near one catches it.
 // FishFx - visible fish for the Risk of Rain 2 fishing game (local visuals only, changes no gameplay).
-//  * 16 textured fish swim 0.3-1.5 m under the lake ("FishingWater" on the host, "FishingClientWater" on guests)
+//  * v5: the fish are real 3D models from Fish3D.cs (lofted bodies, fins, skinned swim wave) instead of crossed textured quads.
+//  * 16 fish swim 0.3-1.5 m under the lake ("FishingWater" on the host, "FishingClientWater" on guests)
 //    within ~25 m of the local player: wandering, tail wiggle, the occasional jump with a splash ring.
 //  * When the fishing mod announces "[FT] CATCH|<name>|<species>|<value>|<total>" in chat, that species
 //    flops above the catcher's head for ~3 s with a "<species> $<value>" label, then fades out.
@@ -20,16 +21,16 @@ using UnityEngine;
 #if FISHFX_CLIENT
 public static class FishFxClient
 #else
-public static class FishFx3
+public static class FishFx4
 #endif
 {
 #if FISHFX_CLIENT
     const string Me = "FishFxClient";
 #else
-    const string Me = "FishFx3";
+    const string Me = "FishFx4";
 #endif
     public static bool enabled = true;
-    public static int version = 4;   // 2 = 14 species, 3 = shared host school (catchable fish), 4 = mod 2.0
+    public static int version = 5;   // 2 = 14 species, 3 = shared host school (catchable fish), 4 = mod 2.0, 5 = 3D fish (Fish3D)
     public static bool running;
     public static string testTrophy;            // "name|species|value" - set from a test class, shown on the main thread (no score)
     public static int texturesMade, fishSpawned, trophiesShown, jumps;
@@ -143,7 +144,7 @@ public static class FishFx3
             #if FISHFX_CLIENT
             root.AddComponent<FishFxClientBehaviour>();
 #else
-            root.AddComponent<FishFx3Behaviour>();
+            root.AddComponent<FishFx4Behaviour>();
 #endif
             // seed the chat-seen list so old catches aren't replayed
             IList log = GetStatic(chatType, "readOnlyLog") as IList;
@@ -188,39 +189,27 @@ public static class FishFx3
     const int Angler = 12, Ghost = 13;
     static int SpeciesIndex(string s) { for (int i = 0; i < Species.Length; i++) if (string.Equals(Species[i], s, StringComparison.OrdinalIgnoreCase)) return i; return -1; }
 
-    static Texture2D[] tex = new Texture2D[14];
-    static Material[] matUnder = new Material[14], matAbove = new Material[14];
-    static Mesh fishMesh, ringMesh;
+    static bool[] ready = new bool[14];
+    static Mesh ringMesh;
     static Material ringMat;
     static Shader sprite;
     static int texNext;
 
-    static bool BuildAssets()   // one species per call (spreads the ~20 ms per texture over frames); true when all done
+    static bool BuildAssets()   // one species per call (spreads the ~25 ms per 3D model over frames); true when all done
     {
         if (sprite == null)
         {
             sprite = Shader.Find("Sprites/Default");
             if (sprite == null) sprite = Shader.Find("Unlit/Transparent");
             Log("shader " + (sprite != null ? sprite.name : "NONE"));
-            fishMesh = CrossedQuads();
             ringMesh = FlatQuad();
+            Fish3D.log = Log;
         }
         if (texNext < Species.Length)
         {
             int i = texNext++;
-            byte[] px = FishArt.RenderBytesBottomUp(Species[i]);
-            var t = new Texture2D(FishArt.W, FishArt.H, TextureFormat.RGBA32, true);
-            var cols = new Color32[FishArt.W * FishArt.H];
-            for (int k = 0; k < cols.Length; k++) cols[k] = new Color32(px[4 * k], px[4 * k + 1], px[4 * k + 2], px[4 * k + 3]);
-            t.SetPixels32(cols);
-            t.wrapMode = TextureWrapMode.Clamp; t.filterMode = FilterMode.Bilinear; t.name = "FishFx_" + Species[i];
-            t.Apply(true);
-            tex[i] = t;
-            matUnder[i] = new Material(sprite); matUnder[i].mainTexture = t; matUnder[i].color = new Color(0.72f, 0.88f, 1f, 0.82f); matUnder[i].renderQueue = 3050;
-            matAbove[i] = new Material(sprite); matAbove[i].mainTexture = t; matAbove[i].color = Color.white; matAbove[i].renderQueue = 3100;
-            if (i == Ghost) { matUnder[i].color = new Color(0.8f, 1f, 1f, 0.5f); matAbove[i].color = new Color(1f, 1f, 1f, 0.7f); }   // semi-transparent
+            ready[i] = Fish3D.Prepare(Species[i]);   // 3D model: mesh + projected FishArt texture + materials (cached per species)
             texturesMade++;
-            SavePng(t, Species[i]);
             if (texNext == Species.Length)
             {
                 // splash ring texture
@@ -234,7 +223,7 @@ public static class FishFx3
                     }
                 rt.SetPixels32(rc); rt.wrapMode = TextureWrapMode.Clamp; rt.Apply();
                 ringMat = new Material(sprite); ringMat.mainTexture = rt; ringMat.renderQueue = 3101;
-                Log("textures created: " + texturesMade + " (128x64 each) + splash ring");
+                Log("3D fish models ready: " + texturesMade + " (lit shader '" + Fish3D.ShaderName + "', underwater '" + Fish3D.UnderShaderName + "') + splash ring");
             }
             return false;
         }
@@ -256,17 +245,18 @@ public static class FishFx3
         catch (Exception e) { Log("png save error: " + (e.InnerException ?? e).Message); savePreviewDir = null; }
     }
 
-    static Mesh CrossedQuads()   // unit fish: length 1 along +X (head at +X), side quad 0.5 tall (XY), top quad 0.22 wide (XZ)
+    // empty holder transform (positioned/rotated by FishFx) with the Fish3D model as child (model carries the length scale)
+    static GameObject MakeHolder(string name)
     {
-        var m = new Mesh(); m.name = "FishFxCrossedQuads";
-        float hy = 0.25f, hz = 0.11f;
-        m.vertices = new[] {
-            new Vector3(-0.5f, -hy, 0), new Vector3(0.5f, -hy, 0), new Vector3(0.5f, hy, 0), new Vector3(-0.5f, hy, 0),
-            new Vector3(-0.5f, 0, hz), new Vector3(0.5f, 0, hz), new Vector3(0.5f, 0, -hz), new Vector3(-0.5f, 0, -hz) };
-        m.uv = new[] { new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1),
-                       new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1) };
-        m.triangles = new[] { 0, 2, 1, 0, 3, 2, 4, 6, 5, 4, 7, 6 };
-        m.RecalculateBounds();
+        var go = new GameObject(name);
+        go.transform.SetParent(root.transform, false);
+        return go;
+    }
+    static GameObject SetModel(GameObject holder, GameObject old, int sp, float length)
+    {
+        if (old != null) UnityEngine.Object.Destroy(old);
+        GameObject m = Fish3D.Create(Species[sp], length);
+        if (m != null) m.transform.SetParent(holder.transform, false);
         return m;
     }
     static Mesh FlatQuad()
@@ -295,11 +285,11 @@ public static class FishFx3
     // ------------------------------------------------------------------ swimming fish
     class Fish
     {
-        public GameObject go; public Transform tf; public Renderer rend; public int sp; public bool above;
+        public GameObject go; public Transform tf; public int sp = -1; public bool above;
+        public GameObject model;   // Fish3D model (child of go)
         public int sid = -1;   // shared-school fish id (-1 = free in the pool)
-        public float x, y, z, heading, turn, speed, depth, phase, wigFreq, wigAmp;
+        public float x, y, z, heading, turn, speed, depth, phase, wigFreq, wigAmp, swim = 1;
         public float jumpT = -1, jumpBaseY; public float nextJumpCheck;
-        public GameObject lure;   // Anglerfish: small cyan point light at the lure
     }
     const int FishCount = 16;
     static readonly List<Fish> fish = new List<Fish>();
@@ -330,28 +320,15 @@ public static class FishFx3
 
     static void InitFish(Fish f, int sp)
     {
-        f.sp = sp;
         f.speed = Speed[sp] * (0.75f + (float)rng.NextDouble() * 0.5f);
         f.phase = (float)rng.NextDouble() * 10f;
-        f.wigFreq = sp == 5 ? 5f : sp == 7 ? 4f : sp == 8 ? 0.6f : 7f + (float)rng.NextDouble() * 4f;
-        f.wigAmp = sp == 8 ? 6f : sp == 7 ? 22f : 13f;
+        // the body wave is in the 3D model now (Fish3D.Animate); only a gentle whole-body yaw sway remains
+        f.wigFreq = sp == 5 ? 2.5f : sp == 7 ? 1.5f : sp == 8 ? 0.6f : 3f + (float)rng.NextDouble() * 1.5f;
+        f.wigAmp = sp == 8 ? 6f : sp == 7 ? 4f : 4f;
         f.go.name = "FishFx_" + Species[sp];
-        f.rend.sharedMaterial = matUnder[sp]; f.above = false;
-        float L = Length[sp];
-        f.tf.localScale = new Vector3(L, L, L);
-        if (sp == Angler && f.lure == null)
-        {
-            try
-            {
-                f.lure = new GameObject("FishFxLure");
-                f.lure.transform.SetParent(f.tf, false);
-                f.lure.transform.localPosition = new Vector3(0.33f, 0.19f, 0f);   // lure bulb in the 128x64 art
-                var lt = f.lure.AddComponent<Light>();
-                lt.type = LightType.Point; lt.color = new Color(0.3f, 0.95f, 1f); lt.range = 2.5f; lt.intensity = 2f; lt.shadows = LightShadows.None;
-            }
-            catch (Exception e) { Log("lure light error: " + e.Message); }
-        }
-        if (f.lure != null) f.lure.SetActive(sp == Angler);
+        if (f.sp != sp || f.model == null) f.model = SetModel(f.go, f.model, sp, Length[sp]);   // Anglerfish model brings its own lure light
+        f.sp = sp;
+        f.above = false; Fish3D.SetUnderwater(f.model, true);
     }
 
     static void Splash(float x, float y, float z, float size)
@@ -370,26 +347,25 @@ public static class FishFx3
     }
 
     // ------------------------------------------------------------------ trophies
-    class Trophy { public GameObject go; public Transform tf; public Material mat; public string who, label; public int sp; public float t0, size; public Transform body; }
+    class Trophy { public GameObject go, model; public Transform tf; public string who, label; public int sp; public float t0, size; public Transform body; }
     static readonly List<Trophy> trophies = new List<Trophy>();
 
     static void ShowTrophy(string who, string species, string value)
     {
         int sp = SpeciesIndex(species);
-        if (sp < 0 || matAbove[sp] == null) { Log("trophy: unknown species '" + species + "' or textures not ready"); return; }
+        if (sp < 0 || !ready[sp]) { Log("trophy: unknown species '" + species + "' or model not ready"); return; }
         Transform body = BodyTransform(who);
         if (body == null) { Log("trophy: no body for " + who); return; }
         for (int i = trophies.Count - 1; i >= 0; i--) if (trophies[i].who == who) { KillTrophy(trophies[i]); trophies.RemoveAt(i); }
         var tr = new Trophy { who = who, sp = sp, t0 = Time.time, body = body, label = Species[sp] + " $" + value };
-        tr.mat = new Material(matAbove[sp]); tr.mat.renderQueue = 3150;
-        Renderer r;
-        tr.go = MakeObj("FishFxTrophy_" + who, fishMesh, tr.mat, out r); tr.tf = tr.go.transform;
+        tr.go = MakeHolder("FishFxTrophy_" + who); tr.tf = tr.go.transform;
+        tr.model = SetModel(tr.go, null, sp, 1f);   // holder scale = trophy size
         tr.size = Mathf.Clamp(Length[sp] * 1.25f, 0.8f, 2.2f);
         trophies.Add(tr);
         trophiesShown++;
         Log("trophy shown: " + who + " " + tr.label + " (size " + tr.size.ToString("0.00") + " m)");
     }
-    static void KillTrophy(Trophy t) { try { if (t.go != null) UnityEngine.Object.Destroy(t.go); if (t.mat != null) UnityEngine.Object.Destroy(t.mat); } catch { } }
+    static void KillTrophy(Trophy t) { try { if (t.go != null) UnityEngine.Object.Destroy(t.go); } catch { } }
 
     static Transform BodyTransform(string name)
     {
@@ -521,8 +497,8 @@ public static class FishFx3
         {
             for (int i = 0; i < FishCount; i++)
             {
-                var f = new Fish(); Renderer r;
-                f.go = MakeObj("FishFx_fish", fishMesh, matUnder[0], out r); f.tf = f.go.transform; f.rend = r;
+                var f = new Fish();
+                f.go = MakeHolder("FishFx_fish"); f.tf = f.go.transform;
                 InitFish(f, PickSpecies());
                 Place(f, c, surfY, true);
                 f.nextJumpCheck = t + (float)rng.NextDouble() * 5f;
@@ -567,8 +543,8 @@ public static class FishFx3
                 float vy = (peak - f.jumpBaseY) * 4f * (1 - 2 * k) / 1.1f;
                 pitch = Mathf.Atan2(vy, spd) * Mathf.Rad2Deg;
                 bool up = y > surfY;
-                if (up != f.above) { f.above = up; f.rend.sharedMaterial = up ? matAbove[f.sp] : matUnder[f.sp]; Splash(f.x, surfY, f.z, 0.6f + Length[f.sp]); }
-                if (k >= 1) { f.jumpT = -1; y = f.jumpBaseY; if (f.above) { f.above = false; f.rend.sharedMaterial = matUnder[f.sp]; } }
+                if (up != f.above) { f.above = up; Fish3D.SetUnderwater(f.model, !up); Splash(f.x, surfY, f.z, 0.6f + Length[f.sp]); }
+                if (k >= 1) { f.jumpT = -1; y = f.jumpBaseY; if (f.above) { f.above = false; Fish3D.SetUnderwater(f.model, true); } }
             }
             else
             {
@@ -583,6 +559,7 @@ public static class FishFx3
             float wig = f.wigAmp * Mathf.Sin(t * f.wigFreq + f.phase);
             if (f.jumpT >= 0) wig *= 1.8f;
             f.tf.SetPositionAndRotation(new Vector3(f.x, y, f.z), Quaternion.Euler(0, -f.heading * Mathf.Rad2Deg + wig, pitch));
+            Fish3D.Animate(f.model, t, f.jumpT >= 0 ? 2.5f : spd / Mathf.Max(0.3f, Speed[f.sp]));
         }
         if (respawned > 0) { fishSpawned += respawned; }
     }
@@ -622,8 +599,8 @@ public static class FishFx3
                 foreach (Fish p in fish) if (p.sid < 0) { f = p; break; }
                 if (f == null)
                 {
-                    f = new Fish(); Renderer r;
-                    f.go = MakeObj("FishFx_fish", fishMesh, matUnder[0], out r); f.tf = f.go.transform; f.rend = r;
+                    f = new Fish();
+                    f.go = MakeHolder("FishFx_fish"); f.tf = f.go.transform;
                     fish.Add(f);
                 }
                 f.sid = sf.id; InitFish(f, sf.sp); f.jumpT = -1; byId[sf.id] = f; fishSpawned++;
@@ -647,11 +624,13 @@ public static class FishFx3
             }
             else { y = baseY + 0.06f * Mathf.Sin(t * 1.3f + f.phase); f.jumpT = -1; }
             bool up = y > surfY;
-            if (up != f.above) { f.above = up; f.rend.sharedMaterial = up ? matAbove[f.sp] : matUnder[f.sp]; Splash(x, surfY, z, 0.6f + Length[f.sp]); }
+            if (up != f.above) { f.above = up; Fish3D.SetUnderwater(f.model, !up); Splash(x, surfY, z, 0.6f + Length[f.sp]); }
             f.y = y;
             float wig = f.wigAmp * Mathf.Sin(t * f.wigFreq + f.phase);
             if (jk >= 0) wig *= 1.8f;
             f.tf.SetPositionAndRotation(new Vector3(x, y, z), Quaternion.Euler(0, -f.heading * Mathf.Rad2Deg + wig, pitch));
+            f.swim = Mathf.Lerp(f.swim, jk >= 0 ? 2.5f : Mathf.Clamp(spd / Mathf.Max(0.3f, Speed[f.sp]), 0.2f, 3f), Mathf.Min(1f, dt * 2f));
+            Fish3D.Animate(f.model, t, f.swim);
         }
     }
 
@@ -684,9 +663,9 @@ public static class FishFx3
             float flop = 38f * Mathf.Sin(age * 13f) * (1 - 0.4f * age / 3f);
             Quaternion q = Quaternion.LookRotation(f.normalized, Vector3.up) * Quaternion.Euler(0, 0, flop) * Quaternion.Euler(0, 25f * Mathf.Sin(age * 5f), 0);
             tr.tf.SetPositionAndRotation(p, q);
-            float s = tr.size * (pop < 1 ? Mathf.Sin(pop * Mathf.PI * 0.5f) * 1.15f : 1f);
+            float s = tr.size * (pop < 1 ? Mathf.Sin(pop * Mathf.PI * 0.5f) * 1.15f : 1f) * Mathf.Sqrt(fade);   // opaque 3D model: shrink away instead of alpha fade
             tr.tf.localScale = new Vector3(s, s, s);
-            Color c = Color.white; c.a = fade; tr.mat.color = c;
+            Fish3D.Animate(tr.model, t, 2.5f);   // thrashing
         }
     }
 
@@ -730,14 +709,14 @@ class FishFxMarker { }
 #if FISHFX_CLIENT
 public class FishFxClientBehaviour : MonoBehaviour
 #else
-public class FishFx3Behaviour : MonoBehaviour
+public class FishFx4Behaviour : MonoBehaviour
 #endif
 {
 #if FISHFX_CLIENT
     void Update() { FishFxClient.Frame(); }
     void OnGUI() { FishFxClient.Gui(); }
 #else
-    void Update() { FishFx3.Frame(); }
-    void OnGUI() { FishFx3.Gui(); }
+    void Update() { FishFx4.Frame(); }
+    void OnGUI() { FishFx4.Gui(); }
 #endif
 }

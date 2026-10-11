@@ -94,8 +94,9 @@ static class FishingLauncher
         if (!noUpdate && Updater.CheckAndUpdate(args)) return 0;   // a newer FISHING.exe was started in our place
         if (updateOnly) { Say("--update-only: done."); return 0; }
         Console.WriteLine();
-        Say("Draws the fishing rods, lines, bobbers and water that the host's fishing mod announces in chat,");
-        Say("and adds the F2 'Requests for Claude' panel.");
+        Say("Draws the fishing rods, lines, bobbers, water, weather and day/night that the host's fishing mod announces");
+        Say("in chat, and adds swimming, the rod shop stall, fish merchant, inventory (I), compass (Shift), range finder (R),");
+        Say("flashlight (L), feature votes, the island and the aquariums.");
         Console.WriteLine();
         try { return Done(Inject()); }
         catch (Exception e)
@@ -142,7 +143,7 @@ static class FishingLauncher
         {
             Say("Fishing visuals loaded into Risk of Rain 2 ✔" + (news.Contains("already running") ? "  (they were already loaded - nothing changed)" : ""));
             Say("Type 'fish' in chat or left-click as usual - you'll now see everyone's rods, lines,");
-            Say("bobbers and the water.");
+            Say("bobbers and the water. In the water: hold JUMP to swim up, X to dive. L = flashlight.");
         }
         else
         {
@@ -203,7 +204,7 @@ static class FishingLauncher
             Say("Fishing rod equipped ✔" + (nwNews.Contains("already running") ? "  (it was already loaded - nothing changed)" : ""));
             Say("Weapons are removed: LEFT CLICK = fishing rod (cast, and click again when it bites).");
             Say("RIGHT CLICK = Rod Whip: hit the player in front of you (1 damage) and snap their line back.");
-            Say("Shift / R do nothing. Equipment (Q), jump and sprint still work.");
+            Say("Shift = Compass, R = Range Finder (gadgets from the Rod Shop stall). Equipment (Q), jump and sprint still work.");
         }
         else
         {
@@ -231,9 +232,130 @@ static class FishingLauncher
             if (fiNews.Length > 0) Console.WriteLine(fiNews);
             rc5 = 1;
         }
+        // 6) hotspot compass + range finder + Cast Distance Tracker (hotspots are no longer drawn on the water)
+        Console.WriteLine();
+        string coLog = Path.Combine(Path.GetTempPath(), "ror2_compass_client.log");
+        string coNews;
+        Say("Adding the hotspot compass...");
+        int rc6 = LoadPayload("CompassClient.dll", "CompassClient", "ror2_compass_client_", coLog, out coNews);
+        if (rc6 != 0) { }
+        else if (coNews.Contains("host detected"))
+            Say("This game is the HOST - the host runs its own compass, nothing changed here.");
+        else if (coNews.Contains("already running") || coNews.Contains("installed"))
+        {
+            Say("Compass loaded ✔" + (coNews.Contains("already running") ? "  (it was already loaded - nothing changed)" : ""));
+            Say("Hotspots are invisible now. Gadgets from the Rod Shop stall (ITEMS tab): Compass = hold SHIFT, Range Finder = hold R.");
+            Say("The Cast Distance Tracker shows cast and bobber-to-hotspot distances while you fish.");
+        }
+        else
+        {
+            Say("Loaded, but the compass couldn't start. Details: " + coLog);
+            if (coNews.Length > 0) Console.WriteLine(coNews);
+            rc6 = 1;
+        }
+        // feature votes: poll card + number keys 1/2/3 send "!vote N" (host runs FeatureVote<N>)
+        Console.WriteLine();
+        string voteLog = Path.Combine(Path.GetTempPath(), "ror2_vote_client.log");
+        string voteNews;
+        Say("Adding the feature-vote card...");
+        int rcVote = LoadPayload("VoteClient.dll", "VoteClient", "ror2_vote_client_", voteLog, out voteNews);
+        if (rcVote != 0) { }
+        else if (voteNews.Contains("host detected"))
+            Say("This game is the HOST - the host runs its own feature-vote add-on, nothing changed here.");
+        else if (voteNews.Contains("already running") || voteNews.Contains("installed"))
+            Say("Feature votes loaded ✔  When a poll pops up, press 1, 2 or 3 (or type !vote 1-3) to pick what gets built next.");
+        else
+        {
+            Say("Loaded, but the feature-vote card couldn't start. Details: " + voteLog);
+            if (voteNews.Length > 0) Console.WriteLine(voteNews);
+            rcVote = 1;
+        }
+        // inventory window: I or !inv, equip slots + item grid; equips through the normal chat commands (host runs Inventory<N>)
+        Console.WriteLine();
+        string invLog = Path.Combine(Path.GetTempPath(), "ror2_inventory_client.log");
+        string invNews;
+        Say("Adding the inventory window...");
+        int rcInv = LoadPayload("InventoryClient.dll", "InventoryClient", "ror2_inventory_client_", invLog, out invNews);
+        if (rcInv != 0) { }
+        else if (invNews.Contains("host detected"))
+            Say("This game is the HOST - the host runs its own inventory add-on, nothing changed here.");
+        else if (invNews.Contains("already running") || invNews.Contains("installed"))
+            Say("Inventory loaded ✔  Press I (or type !inv) to open it: equip rods, skins, bobbers, lures, gadgets and your pet.");
+        else
+        {
+            Say("Loaded, but the inventory window couldn't start. Details: " + invLog);
+            if (invNews.Length > 0) Console.WriteLine(invNews);
+            rcInv = 1;
+        }
+        // rod shop stall, glowing bobbers, fishing clock, guide book (shopstand agent)
+        Console.WriteLine();
+        string ssLog = Path.Combine(Path.GetTempPath(), "ror2_shopstand_client.log");
+        string ssNews;
+        Say("Loading the rod shop stall, the fishing clock and the guide book...");
+        int rcShop = LoadPayload("ShopStandClient.dll", "ShopStandClient", "ror2_shopstand_client_", ssLog, out ssNews);
+        if (rcShop != 0) { }
+        else if (ssNews.Contains("host detected")) Say("This game is the HOST - the host runs its own stall / clock / book add-ons, nothing changed here.");
+        else if (ssNews.Contains("already running") || ssNews.Contains("installed"))
+        {
+            Say("Rod shop stall, clock and guide book loaded ✔" + (ssNews.Contains("already running") ? "  (already loaded - nothing changed)" : ""));
+            Say("Walk up to the ROD SHOP stall by the lake to buy rods and bobbers. Press G (or type !guide) for the fishing guide book.");
+        }
+        else { Say("Loaded, but the rod shop stall couldn't start. Details: " + ssLog); if (ssNews.Length > 0) Console.WriteLine(ssNews); rcShop = 1; }
+        // fish merchant + CS:GO-style cases + StatTrak (merchant agent)
+        Console.WriteLine();
+        string mcLog = Path.Combine(Path.GetTempPath(), "ror2_merchant_client.log");
+        string mcNews;
+        Say("Loading the fish merchant and the cases...");
+        int rcM = LoadPayload("MerchantClient.dll", "MerchantClient", "ror2_merchant_client_", mcLog, out mcNews);
+        if (rcM != 0) { }
+        else if (mcNews.Contains("host detected"))
+            Say("This game is the HOST - the host runs the merchant itself, nothing changed here.");
+        else if (mcNews.Contains("already running") || mcNews.Contains("installed"))
+        {
+            Say("Fish merchant loaded ✔" + (mcNews.Contains("already running") ? "  (it was already loaded - nothing changed)" : ""));
+            Say("Walk up to the Fish Merchant by the lake: sell fish, trade them for cases, unbox rod skins (number keys).");
+        }
+        else
+        {
+            Say("Loaded, but the fish merchant couldn't start. Details: " + mcLog);
+            if (mcNews.Length > 0) Console.WriteLine(mcNews);
+        }
+        // Tropical Island map (island agent)
+        Console.WriteLine();
+        string isLog = Path.Combine(Path.GetTempPath(), "ror2_island.log");
+        string isNews;
+        Say("Loading the Tropical Island...");
+        int rcI = LoadPayload("IslandClient.dll", "IslandClient", "ror2_island_client_", isLog, out isNews);
+        if (rcI != 0) { }
+        else if (isNews.Contains("host detected"))
+            Say("This game is the HOST - the host builds the island itself, nothing changed here.");
+        else if (isNews.Contains("already running") || isNews.Contains("installed"))
+            Say("Tropical Island loaded \u2714" + (isNews.Contains("already running") ? "  (it was already loaded - nothing changed)" : "") + "  When the host types !island you sail there too.");
+        else
+        {
+            Say("Loaded, but the island couldn't start. Details: " + isLog);
+            if (isNews.Length > 0) Console.WriteLine(isNews);
+        }
+        // personal aquariums: !house / !visit <name> / !back (host runs Aquarium<N>)
+        Console.WriteLine();
+        string aqLog = Path.Combine(Path.GetTempPath(), "ror2_aquarium.log");
+        string aqNews;
+        Say("Loading the aquariums...");
+        int rcAq = LoadPayload("AquariumClient.dll", "AquariumClient", "ror2_aquarium_client_", aqLog, out aqNews);
+        if (rcAq != 0) { }
+        else if (aqNews.Contains("host detected"))
+            Say("This game is the HOST - the host builds the aquariums itself, nothing changed here.");
+        else if (aqNews.Contains("already running") || aqNews.Contains("installed"))
+            Say("Aquariums loaded \u2714  Type !house to visit your own fish tank, !visit <name> for a friend's, !back to return.");
+        else
+        {
+            Say("Loaded, but the aquariums couldn't start. Details: " + aqLog);
+            if (aqNews.Length > 0) Console.WriteLine(aqNews);
+        }
         Console.WriteLine();
         Say("You can close this window; closing the game removes everything.");
-        return rc != 0 ? rc : rc2 != 0 ? rc2 : rc3 != 0 ? rc3 : rc4 != 0 ? rc4 : rc5;
+        int rcAll = rc != 0 ? rc : rc2 != 0 ? rc2 : rc3 != 0 ? rc3 : rc4 != 0 ? rc4 : rc5 != 0 ? rc5 : rc6 != 0 ? rc6 : rcVote != 0 ? rcVote : rcInv;
+        return rcAll != 0 ? rcAll : rcShop;
     }
 
     // Writes the embedded payload to a unique temp file and runs <cls>.Run() inside the game.
@@ -328,7 +450,7 @@ static class FishingLauncher
 // ---------------------------------------------------------------- self-updater
 static class Updater
 {
-    public const string Version = "2.0";
+    public const string Version = "3.0";
     const string Repo = "Joeyvolcic/ror2-fishing";
     const string LatestJson = "https://github.com/" + Repo + "/releases/latest/download/latest.json";
     const string AllowedPrefix = "https://github.com/" + Repo + "/releases/download/";
