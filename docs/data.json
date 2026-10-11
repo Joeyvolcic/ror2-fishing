@@ -1,5 +1,5 @@
 {
- "generated": "2026-10-10T18:57:04Z",
+ "generated": "2026-10-11T02:21:31Z",
  "releases": [
   {
    "id": "v2.0",
@@ -13,10 +13,10 @@
   {
    "id": "next",
    "title": "Next release",
-   "version": "2.1 or 3.0 (TBD)",
+   "version": "2.1 (tentative)",
    "target": "",
    "status": "in-progress",
-   "notes": "",
+   "notes": "Plan (option 3): restore the injector for live testing, and ship through the BepInEx plugin. Built and waiting for in-game testing: friends' client 2.1, sandbox v6, fishing zones and the guide audit.",
    "order": 2
   },
   {
@@ -41,11 +41,24 @@
  "features": [
   {
    "id": "n-bepinex",
-   "name": "BepInEx plugin for friends",
+   "name": "BepInEx plugin (host + friends, all features)",
    "area": "Release",
-   "summary": "Windows Defender flags the injector, so friends will get the mod as an r2modman/BepInEx plugin instead of FISHING.exe. The v2 features are ported and packaged as a zip.",
+   "summary": "Main path forward: one r2modman plugin (com.jv94.fishing 2.1.0) for host and friends with every feature, so nothing needs a separate injector that antivirus flags. Installs through r2modman 'Start modded'. Not published yet.",
+   "status": "building",
+   "progress": 30,
+   "priority": "P1",
+   "rank": 1,
+   "release": "next",
+   "updated": "2026-10-10",
+   "votes": 0
+  },
+  {
+   "id": "n-sandbox",
+   "name": "Feature test sandbox",
+   "area": "Release",
+   "summary": "TestSandbox6 is built, with offline tests passing; not injected (injector quarantined). Adds input ownership (number keys go only to the panel), an N note box (Enter note / Shift+Enter pass / Ctrl+Enter fail), a 31-feature queue synced from the tracker (!test sync), instant time and weather presets, quick bite, fish at the bobber, golden hotspot teleport, case skins and gadgets, a real-money leaderboard for friends, and verified restore after a stage change or crash.",
    "status": "built",
-   "progress": 50,
+   "progress": 75,
    "priority": "P1",
    "rank": 1,
    "release": "next",
@@ -59,19 +72,6 @@
    "summary": "Live: an eased wind-up, a flick with overshoot, release at 0.34 s, a curved bobber flight with spin, a splash, bobbing, a dip and tugs on a bite, three skips while reeling, and a 24-point sagging line with rod bend. Gameplay timing is unchanged. Only tested on a dummy rod so far.",
    "status": "live",
    "progress": 65,
-   "priority": "P1",
-   "rank": 2,
-   "release": "next",
-   "updated": "2026-10-10",
-   "votes": 0
-  },
-  {
-   "id": "n-sandbox",
-   "name": "Feature test sandbox",
-   "area": "Release",
-   "summary": "!sandbox opens a simple test area (platform, pool, dock, shops). !test <n> sets up one feature with temporary items, money, time and weather, then !note <comment> records feedback. Triage reads each note and marks the feature passed or needs work on the Testing page. Your real items and money are restored when you leave.",
-   "status": "building",
-   "progress": 10,
    "priority": "P1",
    "rank": 2,
    "release": "next",
@@ -108,9 +108,9 @@
    "id": "n-guest",
    "name": "Friends' client gets the new features",
    "area": "Release",
-   "summary": "Right now the new visuals only show on the host. Friends need the rod skins, 3D fish, lighting, underwater view, pets, pools and cases in their build.",
-   "status": "planned",
-   "progress": 10,
+   "summary": "Built: friends' FISHING.exe 2.1 with almost every new feature (rod hand and casting, underwater and swimming, weather, day/night, glow bobbers and rod models, compass, range finder and tracker, voting, inventory, stall, clock and guide, merchant, cases and StatTrak, island, aquariums, flashlight, pet lines, zone markers). Leaves out roulette and the sandbox. 74/74 offline checks pass. Not tested in game yet. Not published.",
+   "status": "built",
+   "progress": 60,
    "priority": "P1",
    "rank": 5,
    "release": "next",
@@ -138,6 +138,19 @@
    "status": "planned",
    "progress": 0,
    "priority": "P1",
+   "rank": 6,
+   "release": "next",
+   "updated": "2026-10-10",
+   "votes": 0
+  },
+  {
+   "id": "n-zones",
+   "name": "Fishing zones + accurate guide",
+   "area": "Guide",
+   "summary": "Built, not injected (injector quarantined). The audit found 33 claims; the false ones were fixed in the guide or the game: “best shore” had no bonus, hotspot fish mixed with lake fish, night fish didn't appear at night, drowning text was outdated, and odds assumed the Basic rod. Zones: Siphoned Forest has Frozen Reeds, Moonlit Hollow, Deep Drop and Koi Bend; Distant Roost and Abandoned Aqueduct have 3 each, plus a generic set for other maps. 82 'better' claims were proven by simulation (e.g. Deep Drop + Long Cast 20.7% vs 9.0% rare). Subtle cues; the range finder names zones.",
+   "status": "built",
+   "progress": 55,
+   "priority": "P2",
    "rank": 6,
    "release": "next",
    "updated": "2026-10-10",
