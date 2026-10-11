@@ -1,4 +1,7 @@
-# Risk of Rain 2 fishing mod (guest client)
+﻿# Risk of Rain 2 fishing mod (guest client)
+
+**Roadmap:** https://joeyvolcic.github.io/ror2-fishing/ (what's shipped, what's in testing, what's planned, and player votes)  
+**Latest pre-release:** [v3.0 (untested)](https://github.com/Joeyvolcic/ror2-fishing/releases/tag/v3.0)
 
 `FISHING.exe` is the guest half of a Risk of Rain 2 fishing game. The host runs the fishing mod itself:
 casts, bites, catches, the fish you get and the tournament money are all decided in the host's game,
